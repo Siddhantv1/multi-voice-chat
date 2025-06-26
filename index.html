@@ -265,7 +265,9 @@
 
         socket.on('new-user', ({ id, username }) => {
             addParticipantCard(id, false, username);
+            if (!pcMap.has(id)) {
             createPeerConnection(id, true);
+            }
         });
 
         socket.on('user-disconnected', (userId) => {
