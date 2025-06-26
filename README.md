@@ -1,11 +1,16 @@
 # multi-voice-chat
-A mini project about multi-user voice-chat for browsers, made with made using WebRTC and Socket.IO.
+A mini project about multi-user voice-chat for browsers, made using WebRTC and Socket.IO.
 
 ## How it works
 Create a room by entering a random a 6-character code of your choice. You become the host of this room.
+
 Share this code with your friends and see all joining requests in lobby.
+
 By default the mic is on mute, hold 'M' to temporarily unmute yourself when speaking.
+
 If everybody leaves a current room the connection is closed and the code is now invalid.
+
+Upto 4 members can join a Room.
 
 ## Quick set up
 1. Clone this repository and navigate to the folder:
