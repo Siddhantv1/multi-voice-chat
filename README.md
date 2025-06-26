@@ -13,7 +13,12 @@ If everybody leaves a current room the connection is closed and the code is now 
 git clone https://github.com/siddhantv1/multi-voice-chat.git
 cd multi-voice-chat
 ```
-2. Run the server and then open `index.html` 
+2. Install dependencies
+```sh
+npm install
+```
+
+3. Run the server and then open `index.html` 
 ```sh
 node server.js
 ```
