@@ -24,7 +24,7 @@ io.on('connection', (socket) => {
                 host: socket.id
             };
         }
-
+        //usernames or socket ID as names
         usernames[socket.id] = username || socket.id;
 
         const room = rooms[roomID];
@@ -40,51 +40,67 @@ io.on('connection', (socket) => {
             console.log(`Room ${roomID} created by host ${socket.id}`);
         } else {
             room.pending.add(socket.id);
-            io.to(room.host).emit('approval-request', { guestId: socket.id, roomID });
-            console.log(`User ${socket.id} requesting to join room ${roomID}`);
+            //fix: guest name appears on request
+            io.to(room.host).emit('approval-request', {
+                guestId: socket.id,
+                username: usernames[socket.id], // Send username to the host
+                roomID
+            });
+            console.log(`User ${socket.id} (${usernames[socket.id]}) requesting to join room ${roomID}`);
         }
     });
 
+    // host: reject or accept request to join
     socket.on('approve-user', ({ roomID, guestId, accept }) => {
         const room = rooms[roomID];
         if (!room || socket.id !== room.host) return;
 
+        // remove guest from lobby.
         room.pending.delete(guestId);
 
         if (accept) {
+            // Check room capacity
             if (room.members.length >= 4) {
                 io.to(guestId).emit('room-full');
                 return;
             }
 
+            //notify host+ other guests of new member connected
+            io.to(roomID).emit('new-user', {
+                id: guestId,
+                username: usernames[guestId] || guestId
+            });
+
+            // Add the member
             room.members.push(guestId);
-            socket.to(roomID).emit('new-user', {
-                    id: guestId,
-                    username: usernames[guestId] || guestId
-                    });
+            
+            //initiate webRTC connections with members list
             io.to(guestId).emit('join-accepted', {
                 roomID,
                 existingUsers: room.members.filter(id => id !== guestId),
                 usernames: room.members.reduce((acc, id) => {
-                    acc[id] = usernames[id] || id;
+                    acc[id] = usernames[id] || id; // Provide a map of all usernames
                     return acc;
                 }, {})
             });
 
+            // add the guest's socket to the Socket.IO room
             const guestSocket = io.sockets.sockets.get(guestId);
             if (guestSocket) guestSocket.join(roomID);
 
             console.log(`User ${guestId} approved for room ${roomID}`);
         } else {
             io.to(guestId).emit('join-rejected');
-            console.log(`User ${guestId} rejected for room ${roomID}`);
+            console.log(`User ${guestId} rejected for room ${roomID}`); //rejection
         }
     });
 
+    // forward connection from peer to peer
     socket.on('offer', (data) => {
         io.to(data.target).emit('offer', { sdp: data.sdp, caller: socket.id });
     });
 
+    // return answer connection back to caller
     socket.on('answer', (data) => {
         io.to(data.target).emit('answer', { sdp: data.sdp, callee: socket.id });
     });
@@ -92,10 +108,11 @@ io.on('connection', (socket) => {
     socket.on('ice-candidate', (data) => {
         io.to(data.target).emit('ice-candidate', { candidate: data.candidate, sender: socket.id });
     });
-
     socket.on('speaking', ({ roomID, speaking }) => {
         socket.to(roomID).emit('user-speaking', { userId: socket.id, speaking });
     });
+
+    //handle disconnnects or leavs
     const handleDisconnect = () => {
         console.log(`User disconnected: ${socket.id}`);
         for (const roomID in rooms) {
@@ -104,26 +121,31 @@ io.on('connection', (socket) => {
 
             if (memberIndex > -1) {
                 room.members.splice(memberIndex, 1);
+                // terminal notify that member left
                 socket.to(roomID).emit('user-disconnected', socket.id);
                 delete usernames[socket.id];
 
+                // assign a new host
                 if (socket.id === room.host && room.members.length > 0) {
                     room.host = room.members[0];
                     io.to(room.host).emit('new-host');
+                    console.log(`New host for room ${roomID} is ${room.host}`);
                 }
 
+                // If the room is now empty, close connection
                 if (room.members.length === 0) {
                     delete rooms[roomID];
                     console.log(`Room ${roomID} is now empty and has been closed.`);
                 }
                 break;
             }
+            //remove pending requests
             room.pending.delete(socket.id);
         }
     };
     socket.on('leave', (roomID) => {
         handleDisconnect();
-    });
+    });    
     socket.on('disconnect', () => {
         handleDisconnect();
     });
