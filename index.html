@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .ring-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
+    <div id="app" class="w-full max-w-md mx-auto p-4">
+
+        <!-- Lobby View -->
+        <div id="lobby" class="bg-gray-800 p-8 rounded-lg shadow-xl space-y-6">
+            <h1 class="text-3xl font-bold text-center text-white">Voice Chat</h1>
+            <div class="space-y-4">
+                <input id="roomInput" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-md text-center text-lg tracking-widest uppercase focus:outline-none focus:ring-2 focus:ring-indigo-500" type="text" placeholder="ENTER ROOM CODE" maxlength="6">
+                <button id="joinBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-md transition duration-300 ease-in-out transform hover:scale-105">Join / Create Room</button>
+            </div>
+             <p id="lobby-error" class="text-red-400 text-center"></p>
+        </div>
+
+        <!-- Room View -->
+        <div id="room" class="hidden">
+            <div class="bg-gray-800 p-8 rounded-lg shadow-xl">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold">Room Code: <span id="roomCodeDisplay" class="text-indigo-400 font-mono"></span></h2>
+                        <p class="text-sm text-gray-400">Your ID: <span id="myId" class="font-mono"></span></p>
+                    </div>
+                    <button id="leaveBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition duration-300">Leave</button>
+                </div>
+
+                <div id="participants" class="grid grid-cols-2 gap-4">
+                    <!-- Participant cards will be injected here -->
+                </div>
+
+                 <div class="mt-8 text-center">
+                    <p id="micStatus" class="text-gray-400">Hold 'M' to talk</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Audio elements container -->
+        <div id="audio-container"></div>
+        
+        <!-- Approval Modal -->
+        <div id="approval-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div class="bg-gray-800 rounded-lg p-6 shadow-xl">
+                <p id="approval-message" class="mb-4"></p>
+                <div class="flex justify-end space-x-2">
+                    <button id="approve-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded">Approve</button>
+                    <button id="reject-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded">Reject</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const pcMap = new Map();
+        let localStream;
+        let myId = '';
+        let currentRoom = '';
+
+        // --- DOM Elements ---
+        const lobby = document.getElementById('lobby');
+        const room = document.getElementById('room');
+        const joinBtn = document.getElementById('joinBtn');
+        const roomInput = document.getElementById('roomInput');
+        const leaveBtn = document.getElementById('leaveBtn');
+        const roomCodeDisplay = document.getElementById('roomCodeDisplay');
+        const participants = document.getElementById('participants');
+        const audioContainer = document.getElementById('audio-container');
+        const myIdDisplay = document.getElementById('myId');
+        const lobbyError = document.getElementById('lobby-error');
+        const micStatus = document.getElementById('micStatus');
+        const approvalModal = document.getElementById('approval-modal');
+        const approvalMessage = document.getElementById('approval-message');
+        const approveBtn = document.getElementById('approve-btn');
+        const rejectBtn = document.getElementById('reject-btn');
+        
+        let approvalQueue = [];
+        let isProcessingApproval = false;
+
+        // --- Initial Setup ---
+        async function init() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                localStream.getTracks().forEach(track => track.enabled = false); // Mute by default
+                myId = socket.id;
+                myIdDisplay.textContent = myId;
+                addParticipantCard(myId, true); // Add self to the UI
+            } catch (err) {
+                console.error('Error accessing microphone:', err);
+                lobbyError.textContent = 'Microphone access is required to use this app.';
+                joinBtn.disabled = true;
+            }
+        }
+        
+        function processApprovalQueue() {
+            if (isProcessingApproval || approvalQueue.length === 0) return;
+            isProcessingApproval = true;
+            
+            const { guestId, roomID } = approvalQueue.shift();
+            
+            approvalMessage.textContent = `User ${guestId.substring(0, 6)}... wants to join.`;
+            approvalModal.classList.remove('hidden');
+
+            const handleApproval = (accept) => {
+                socket.emit('approve-user', { roomID, guestId, accept });
+                approvalModal.classList.add('hidden');
+                isProcessingApproval = false;
+                processApprovalQueue(); // Check for more requests
+            };
+            
+            approveBtn.onclick = () => handleApproval(true);
+            rejectBtn.onclick = () => handleApproval(false);
+        }
+
+        // --- UI Management ---
+        function showRoom() {
+            lobby.classList.add('hidden');
+            room.classList.remove('hidden');
+        }
+
+        function showLobby() {
+            lobby.classList.remove('hidden');
+            room.classList.add('hidden');
+            participants.innerHTML = ''; // Clear participants
+            audioContainer.innerHTML = ''; // Clear audio elements
+            pcMap.forEach(pc => pc.close());
+            pcMap.clear();
+            currentRoom = '';
+            roomInput.value = '';
+            lobbyError.textContent = '';
+            if (myId) addParticipantCard(myId, true);
+        }
+
+        function addParticipantCard(id, isSelf = false) {
+            if (document.getElementById(`participant-${id}`)) return; // Already exists
+
+            const card = document.createElement('div');
+            card.id = `participant-${id}`;
+            card.className = 'bg-gray-700 p-4 rounded-lg flex items-center space-x-3';
+            
+            const ring = document.createElement('div');
+            ring.className = `w-4 h-4 rounded-full ${isSelf ? 'bg-blue-400' : 'bg-gray-500'}`;
+            ring.id = `status-ring-${id}`;
+
+            const name = document.createElement('p');
+            name.className = 'font-medium truncate';
+            name.textContent = isSelf ? `You (${id.substring(0, 6)}...)` : `User ${id.substring(0, 6)}...`;
+            
+            card.appendChild(ring);
+            card.appendChild(name);
+            participants.appendChild(card);
+        }
+
+        function removeParticipantCard(id) {
+            const card = document.getElementById(`participant-${id}`);
+            if (card) card.remove();
+        }
+
+        function updateSpeakingStatus(id, isSpeaking) {
+             const ring = document.getElementById(`status-ring-${id}`);
+             if (ring) {
+                if(isSpeaking) {
+                    ring.classList.add('ring-pulse', 'bg-green-400');
+                    ring.classList.remove('bg-gray-500', 'bg-blue-400');
+                } else {
+                    ring.classList.remove('ring-pulse', 'bg-green-400');
+                    const card = document.getElementById(`participant-${id}`);
+                    ring.classList.add(card.textContent.startsWith('You') ? 'bg-blue-400' : 'bg-gray-500');
+                }
+             }
+        }
+
+        // --- Event Listeners ---
+        joinBtn.addEventListener('click', () => {
+            const code = roomInput.value.trim().toUpperCase();
+            if (code.length === 6) {
+                socket.emit('join', code);
+                currentRoom = code;
+            } else {
+                lobbyError.textContent = 'Please enter a valid 6-character room code.';
+            }
+        });
+        
+        leaveBtn.addEventListener('click', () => {
+            socket.emit('leave', currentRoom);
+            showLobby();
+        });
+        
+        // --- WebRTC Signaling ---
+        
+        async function createPeerConnection(peerId, isOfferer) {
+            if (!localStream) {
+                console.error("Local stream not available");
+                return;
+            }
+            
+            const pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+            pcMap.set(peerId, pc);
+
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('ice-candidate', { target: peerId, candidate: event.candidate });
+                }
+            };
+            
+            pc.ontrack = (event) => {
+                addParticipantCard(peerId, false);
+                let audioEl = document.getElementById(`audio-${peerId}`);
+                if (!audioEl) {
+                    audioEl = document.createElement('audio');
+                    audioEl.id = `audio-${peerId}`;
+                    audioEl.autoplay = true;
+                    audioContainer.appendChild(audioEl);
+                }
+                audioEl.srcObject = event.streams[0];
+            };
+
+            if (isOfferer) {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit('offer', { target: peerId, sdp: pc.localDescription });
+            }
+        }
+        
+        socket.on('offer', async ({ caller, sdp }) => {
+            await createPeerConnection(caller, false);
+            const pc = pcMap.get(caller);
+            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit('answer', { target: caller, sdp: pc.localDescription });
+        });
+
+        socket.on('answer', async ({ callee, sdp }) => {
+            const pc = pcMap.get(callee);
+            if(pc) {
+                 await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+            }
+        });
+
+        socket.on('ice-candidate', async ({ sender, candidate }) => {
+            const pc = pcMap.get(sender);
+            if(pc) {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+        });
+
+        // --- Socket.IO Room Logic ---
+
+        socket.on('connect', init);
+
+        socket.on('room-created', (code) => {
+            roomCodeDisplay.textContent = code;
+            showRoom();
+        });
+
+        socket.on('join-accepted', ({ roomID, existingUsers }) => {
+            roomCodeDisplay.textContent = roomID;
+            showRoom();
+            existingUsers.forEach(id => createPeerConnection(id, true));
+        });
+        
+        socket.on('approval-request', ({ guestId, roomID }) => {
+            approvalQueue.push({ guestId, roomID });
+            processApprovalQueue();
+        });
+        
+        socket.on('new-user', (userId) => {
+            createPeerConnection(userId, true);
+        });
+
+        socket.on('user-disconnected', (userId) => {
+            const pc = pcMap.get(userId);
+            if (pc) {
+                pc.close();
+                pcMap.delete(userId);
+            }
+            removeParticipantCard(userId);
+            const audioEl = document.getElementById(`audio-${userId}`);
+            if (audioEl) audioEl.remove();
+        });
+
+        socket.on('room-full', () => {
+             lobbyError.textContent = 'Sorry, that room is full.';
+        });
+        
+        socket.on('join-rejected', () => {
+             lobbyError.textContent = 'Your request to join was rejected.';
+        });
+        
+        // Mic mute/unmute
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'm' && document.activeElement !== roomInput) {
+                if (localStream) {
+                    localStream.getTracks().forEach(track => track.enabled = true);
+                    micStatus.textContent = "You are talking...";
+                    micStatus.classList.add('text-green-400');
+                    updateSpeakingStatus(myId, true);
+                    socket.emit('speaking', { roomID: currentRoom, speaking: true });
+                }
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key.toLowerCase() === 'm' && document.activeElement !== roomInput) {
+                 if (localStream) {
+                    localStream.getTracks().forEach(track => track.enabled = false);
+                    micStatus.textContent = "Hold 'M' to talk";
+                    micStatus.classList.remove('text-green-400');
+                    updateSpeakingStatus(myId, false);
+                    socket.emit('speaking', { roomID: currentRoom, speaking: false });
+                }
+            }
+        });
+        
+        socket.on('user-speaking', ({ userId, speaking }) => {
+            updateSpeakingStatus(userId, speaking);
+        });
+        
+    </script>
+</body>
+</html>
