@@ -2,12 +2,14 @@
 A mini project about multi-user voice-chat for browsers, made using WebRTC and Socket.IO.
 
 ## How it works
-- Create a room by entering a random a 6-character code of your choice. You become the host of this room.
-- Share this code with your friends and see all joining requests in lobby.
-- By default the mic is on mute, hold 'M' or press unmute button to temporarily unmute yourself when speaking.
-- If the host gets disconnected, the first guest who joined the room becomes the host.
-- If everybody leaves the room becomes empty and the connection is closed.
-- Upto 4 members can join a Room.
+1. Open the site via this [link](https://multi-voice-chat.onrender.com) or locally.
+2. Allow microphone access permission for voice chat.
+3. If you are creating a room, enter a custom code of your choice, 4-6 characters long.
+4. Share this code with your friends and see all joining requests in lobby.
+5. The mic is muted by default, hold 'M' or press unmute button to temporarily unmute yourself when speaking.
+6. If the host gets disconnected, the first guest who joined the room becomes the host.
+7. If everybody leaves the room, it becomes empty and the connection is closed.
+8. Upto 4 members can join a Room.
 
 ## Quick set up
 1. Clone this repository and navigate to the folder:
@@ -20,7 +22,7 @@ cd multi-voice-chat
 npm install
 ```
 
-3. Run the server and then open `index.html` 
+3. Run the server and then open `http://localhost:3000` 
 ```sh
 node server.js
 ```
