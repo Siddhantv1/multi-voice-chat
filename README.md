@@ -25,4 +25,8 @@ npm install
 node server.js
 ```
 ### Tech Stack
-HTML-CSS, Javascript
+- frontend, server: HTML-CSS, Javascript
+- communication: SocketIO WebRTC
+
+**Deployment Link:** 
+[Render](https://multi-voice-chat.onrender.com)
