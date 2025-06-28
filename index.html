@@ -21,6 +21,35 @@
                 opacity: .5;
             }
         }
+        .spinner {
+            position: relative;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+        }
+
+        .spinner::before,
+        .spinner::after {
+            content: "";
+            position: absolute;
+            border-radius: inherit;
+        }
+
+        .spinner::before {
+            width: 100%;
+            height: 100%;
+            top: 20%;
+            left: 10%;
+            background-image: linear-gradient(0deg, #ff00cc 0%, #333399 100%);
+            animation: spin8932 0.5s infinite linear;
+        }
+        .spinner::after{
+            width: 85%;
+            height: 85%;
+            background-color: #111827;
+            top: 28%;
+            left: 17%;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
@@ -35,6 +64,12 @@
                 <button id="joinBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-md transition duration-300 ease-in-out transform hover:scale-105">Join / Create Room</button>
             </div>
             <p id="lobby-error" class="text-red-400 text-center"></p>
+        </div>
+        <!-- lobby loading -->
+         <div id="loading-screen" class="hidden flex flex-col items-center justify-center text-center space-y-4">
+            <div class="spinner mx-auto"></div>
+            <p class="text-xl font-semibold text-white">You're in the lobby.</p>
+            <p class="text-gray-400">wait for host to let you in..</p>
         </div>
 
         <!-- Room -->
@@ -182,6 +217,8 @@
                 return;
             }
             addParticipantCard(myId, true, username);
+            lobby.classList.add('hidden');
+            document.getElementById('loading-screen').classList.remove('hidden');
             socket.emit('join', { roomID: code, username });
             currentRoom = code;
         });
@@ -192,6 +229,7 @@
         });
 
         function showRoom(code) {
+            document.getElementById('loading-screen').classList.add('hidden');
             lobby.classList.add('hidden');
             room.classList.remove('hidden');
             roomCodeDisplay.textContent = code;
@@ -287,10 +325,14 @@
         });
 
         socket.on('room-full', () => {
+            document.getElementById('loading-screen').classList.add('hidden');
+            lobby.classList.remove('hidden'); // Show lobby
             lobbyError.textContent = 'Sorry, that room is full.';
         });
 
         socket.on('join-rejected', () => {
+            document.getElementById('loading-screen').classList.add('hidden'); // Hide loading
+            lobby.classList.remove('hidden');
             lobbyError.textContent = 'Your request to join was rejected.';
         });
 
